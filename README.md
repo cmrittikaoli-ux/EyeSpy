@@ -1,5 +1,7 @@
 # EyeSpy
 
+_For SIH internal selection 2026._
+
 AI-augmented campus security surveillance system. Detects behavioural events (loitering, restricted zone entry, after-hours presence) using video feeds. Generates structured incidents. Supports a human operator response workflow.
 
 ## Stack
@@ -155,11 +157,3 @@ requirements.txt
 - Detects **person class only** (COCO class 0). No face recognition, no identity matching.
 - All alerts are human-reviewed. No automated enforcement.
 - See `docs/model_passport.md` for full model governance documentation.
-
----
-
-## Also in this repository
-
-`ratchet/` is a separate, unrelated project — autonomous settlement for DreamDEX
-Event Contracts on Somnia (TypeScript + Solidity). It has its own README, tests
-and dependencies, and shares nothing with EyeSpy.

@@ -7,6 +7,7 @@ case that matters once a clip leaves this system.
 Run with: pytest tests/ -v
 """
 import hashlib
+import sys
 
 import pytest
 
@@ -45,6 +46,16 @@ def test_keys_are_created_on_first_use():
     assert sign.ED25519_PUBLIC_KEY_PATH.exists()
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason=(
+        "NTFS has no POSIX permission-bit concept — chmod(0o600) on Windows "
+        "cannot make a file owner-only readable the way it does on Unix, so "
+        "st_mode never reflects 0o600 there regardless of what the code did. "
+        "The real ACL-based equivalent isn't a single stat() check; this "
+        "assertion is only meaningful on POSIX."
+    ),
+)
 def test_private_key_is_not_world_readable():
     sign.sign_digest(_digest(b"x"))
     mode = sign.ED25519_PRIVATE_KEY_PATH.stat().st_mode & 0o777

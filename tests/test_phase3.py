@@ -420,7 +420,15 @@ class TestCorrelator:
         from datetime import timedelta
         db = TestingSessionLocal()
 
-        ts = datetime.utcnow()
+        # Anchored well inside a 5-minute dedup bucket (60s/90s past the
+        # boundary, comfortably clear of both edges) rather than "now" --
+        # datetime.utcnow() here would occasionally straddle a bucket
+        # boundary depending on the exact wall-clock second the test runs,
+        # making this fail ~10% of the time for reasons having nothing to
+        # do with the dedup logic itself.
+        bucket_start = datetime.utcnow().replace(second=0, microsecond=0)
+        bucket_start = bucket_start.replace(minute=(bucket_start.minute // 5) * 5)
+        ts = bucket_start + timedelta(seconds=60)
         obs1 = Observation(camera_id=2, track_id="t3", event_type="restricted_zone_entry",
                            timestamp=ts, confidence_score=0.9, impact_score=0.9,
                            explanation="first")

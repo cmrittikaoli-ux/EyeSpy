@@ -201,9 +201,9 @@ class DetectionPipeline:
                 annotated = self._process_frame(frame, yolo)
                 self.source.set_annotated_frame(annotated)
                 consecutive_errors = 0
-            except Exception as exc:
+            except Exception:
                 consecutive_errors += 1
-                logger.error("Pipeline error cam %d: %s", self.camera_db_id, exc)
+                logger.exception("Pipeline error cam %d", self.camera_db_id)
                 if consecutive_errors > 10:
                     logger.critical("Pipeline cam %d: too many errors, stopping", self.camera_db_id)
                     break

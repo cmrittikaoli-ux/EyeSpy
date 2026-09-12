@@ -66,7 +66,14 @@ class CentroidTracker:
             for i in range(len(input_centroids)):
                 self.register(input_centroids[i], input_bboxes[i])
         else:
-            # Match existing objects with new detections
+            # Match existing objects with new detections.
+            # Snapshot the key order once, up front: self.deregister() below
+            # mutates self.objects mid-loop (on a track that's been missing
+            # too long), and row/col indices are computed against THIS
+            # ordering -- re-querying list(self.objects.keys()) after a
+            # deregister shrinks the list out from under still-pending
+            # indices and throws IndexError.
+            object_ids = list(self.objects.keys())
             object_centroids = np.array(list(self.objects.values()))
             D = dist.cdist(object_centroids, input_centroids)
             
@@ -85,7 +92,7 @@ class CentroidTracker:
                 if D[row, col] > self.max_distance:
                     continue
                     
-                object_id = list(self.objects.keys())[row]
+                object_id = object_ids[row]
                 self.objects[object_id] = input_centroids[col]
                 self.object_bboxes[object_id] = input_bboxes[col]
                 self.disappeared[object_id] = 0
@@ -102,7 +109,7 @@ class CentroidTracker:
             # Mark unmatched objects as disappeared
             if D.shape[0] >= D.shape[1]:
                 for row in unused_row_indexes:
-                    object_id = list(self.objects.keys())[row]
+                    object_id = object_ids[row]
                     self.disappeared[object_id] += 1
                     if self.disappeared[object_id] > self.max_disappeared:
                         self.deregister(object_id)

@@ -37,7 +37,7 @@ from backend.detection.fall_heuristic import FallHeuristic
 from backend.detection.abandoned_object import AbandonedObjectHeuristic
 from backend.detection.fire_smoke_heuristic import FireSmokeHeuristic
 from backend.detection.crowd_heuristic import CrowdHeuristic
-from backend.config import CROWD_COUNT_THRESHOLD, CROWD_SUSTAIN_SECONDS
+from backend.config import CROWD_COUNT_THRESHOLD, CROWD_SUSTAIN_SECONDS, DETECTION_TARGET_FPS
 from .video_source import VideoSource, SourceState, FRAME_WIDTH, FRAME_HEIGHT
 
 logger = logging.getLogger(__name__)
@@ -97,7 +97,19 @@ class DetectionPipeline:
         self.source = source
         self.camera_db_id = camera_db_id
 
-        self._tracker = CentroidTracker(max_disappeared=50, max_distance=120)
+        # max_disappeared is counted in detection CALLS, not wall-clock time --
+        # the original 50 was tuned assuming detection ran on every captured
+        # frame (~15-18fps), i.e. a ~3s real-world dropout window. Now that
+        # detection is throttled to DETECTION_TARGET_FPS, using 50 unscaled
+        # would let a stale track linger ~3x longer in real time (fewer,
+        # slower calls to reach the same count), which lets more simultaneous
+        # tracks accumulate and makes the tracker's own O(tracks x detections)
+        # distance-matrix step progressively more expensive the longer a
+        # camera runs. Scaling keeps the same ~3s real dropout window
+        # regardless of the throttle rate.
+        _TRACK_DROPOUT_SECONDS = 3.0
+        _max_disappeared = max(1, round(DETECTION_TARGET_FPS * _TRACK_DROPOUT_SECONDS))
+        self._tracker = CentroidTracker(max_disappeared=_max_disappeared, max_distance=120)
         self._zone_analyzer = ZoneAnalyzer(FRAME_WIDTH, FRAME_HEIGHT)
         self._fall_heuristic = FallHeuristic()
         self._abandoned_object = AbandonedObjectHeuristic()
@@ -117,6 +129,15 @@ class DetectionPipeline:
         # reads without writing on every single frame.
         self._last_synced_status: Optional[str] = None
         self._last_blur_observation_ts: float = 0.0
+
+        # Throttles the expensive full detection pass (YOLO + all heuristics)
+        # to DETECTION_TARGET_FPS instead of running it on every captured
+        # frame (previously every ~13-15fps frame from the reader thread) --
+        # this was the single largest CPU cost in the pipeline. Frames in
+        # between just pass the raw feed straight through, so the live view
+        # stays fluid even though detection itself samples less often.
+        self._last_detection_ts: float = 0.0
+        self._detection_interval: float = (1.0 / DETECTION_TARGET_FPS) if DETECTION_TARGET_FPS > 0 else 0.0
 
         # DB-loaded zone polygons: list of (Zone.id, np.array of points, zone_type)
         self._zones: list = []
@@ -197,15 +218,35 @@ class DetectionPipeline:
                 time.sleep(0.05)
                 continue
 
+            now = time.time()
+            if now - self._last_detection_ts < self._detection_interval:
+                # Below the target detection rate -- pass the raw frame
+                # straight through instead of paying for YOLO + every
+                # heuristic again this tick. The tracker/heuristics only
+                # ever see genuinely-elapsed-time-apart samples this way,
+                # so their own sustain/cooldown timers (measured in wall
+                # time, not frame count) stay correct regardless.
+                self.source.set_annotated_frame(frame)
+                time.sleep(0.01)
+                continue
+
             try:
+                logger.warning("TEMP_DEBUG_DETECTION_TICK cam=%d", self.camera_db_id)
                 annotated = self._process_frame(frame, yolo)
                 self.source.set_annotated_frame(annotated)
+                self._last_detection_ts = now
                 consecutive_errors = 0
             except Exception:
                 consecutive_errors += 1
                 logger.exception("Pipeline error cam %d", self.camera_db_id)
                 if consecutive_errors > 10:
                     logger.critical("Pipeline cam %d: too many errors, stopping", self.camera_db_id)
+                    # Without this, the camera keeps showing whatever status
+                    # it last had (often "active") forever, even though
+                    # detection has silently died -- indistinguishable from
+                    # a healthy camera until someone notices no new
+                    # incidents are coming from it.
+                    self._sync_camera_status("offline")
                     break
                 time.sleep(1)
 

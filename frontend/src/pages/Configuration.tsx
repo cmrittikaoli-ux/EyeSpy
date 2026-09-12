@@ -92,7 +92,11 @@ function CamerasTab() {
   })
   const deleteMutation = useMutation({
     mutationFn: (id: number) => api.del(`/cameras/${id}`),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["cameras"] }),
+    onSuccess: () => {
+      toast.success("Camera removed")
+      queryClient.invalidateQueries({ queryKey: ["cameras"] })
+    },
+    onError: (e: Error) => toast.error(e.message),
   })
 
   const sourceMeta = SOURCE_TYPE_META[sourceType]

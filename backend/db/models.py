@@ -51,7 +51,10 @@ class Camera(Base):
 
     zones = relationship("Zone", back_populates="camera", cascade="all, delete-orphan")
     schedules = relationship("Schedule", back_populates="camera", cascade="all, delete-orphan")
-    observations = relationship("Observation", back_populates="camera")
+    # Without delete-orphan, deleting a Camera left SQLAlchemy trying to NULL
+    # out observations.camera_id (NOT NULL) instead of deleting the rows,
+    # which crashed every camera deletion once it had logged anything.
+    observations = relationship("Observation", back_populates="camera", cascade="all, delete-orphan")
 
 
 class Zone(Base):
@@ -135,7 +138,10 @@ class Observation(Base):
 
     camera = relationship("Camera", back_populates="observations")
     zone = relationship("Zone", back_populates="observations")
-    incident_links = relationship("IncidentObservation", back_populates="observation")
+    # Same reasoning as Camera.observations above: deleting an Observation
+    # needs to take its incident_observations link rows with it, not try to
+    # null out a NOT NULL composite-key column.
+    incident_links = relationship("IncidentObservation", back_populates="observation", cascade="all, delete-orphan")
     acknowledged_user = relationship("User", foreign_keys=[acknowledged_by])
 
 
